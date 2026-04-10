@@ -28,12 +28,27 @@ def fetch_portfolio(key, secret):
         st.error(f"Connection Failed: {response.status_code} - {response.text}")
         return None
 
+# Another cache to store "cash" endpoint data
+@st.cache_data(ttl=120)
+def fetch_cash(key, secret):
+    url = "https://live.trading212.com/api/v0/equity/account/cash"
+    if secret:
+        response = requests.get(url, auth=(API_KEY, sec_key))
+    else:
+        response = requests.get(url, headers={"Authorization": key})
+
+    if response.status_code == 200:
+        return response.json()
+    else:
+        st.error("Failed to fetch cash balance.")
+        return None
 
 # 4. Main App Logic
 if API_KEY:
     positions = fetch_portfolio(API_KEY, sec_key)
+    cash_info = fetch_cash(API_KEY, sec_key)
 
-    if positions:
+    if positions and cash_info:
         # Extract Data
         data = []
         for pos in positions:
@@ -41,6 +56,11 @@ if API_KEY:
             current_val = pos.get('walletImpact', {}).get('currentValue', 0)
             if current_val > 0:  # Only include active positions
                 data.append({'Ticker': ticker, 'Current Value': current_val})
+
+        # INJECT CASH as its own "asset"
+        # T212 returns "free" for cash available
+        free_cash = cash_info.get("free",0)
+        data.append({'Ticker': "CASH", 'Current Value': free_cash})
 
         df = pd.DataFrame(data)
         total_value = df['Current Value'].sum()
