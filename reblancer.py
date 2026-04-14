@@ -49,39 +49,58 @@ if API_KEY:
     cash_info = fetch_cash(API_KEY, sec_key)
 
     if positions and cash_info:
+        # ---------------------------------------------------------
+        # NEW: The Merge Dictionary
+        # Add any tickers here that you want to combine.
+        # Format -> 'Exact_T212_Ticker': 'Your Custom Combined Name'
+        # ---------------------------------------------------------
+        TICKER_MERGES = {
+            'GOOG_US_EQ': 'Alphabet (Combined)',
+            'GOOGL_US_EQ': 'Alphabet (Combined)',
+            # 'BRK.B_US_EQ': 'Berkshire (Combined)',
+            # 'BRK.A_US_EQ': 'Berkshire (Combined)'
+        }
+
         data = []
 
-        # 1. Loop through your stocks (Grabbing ALL metrics)
+        # 1. Loop through your stocks
         for pos in positions:
-            ticker = pos.get('instrument', {}).get('ticker', 'Unknown')
-            impact = pos.get('walletImpact', {})
+            raw_ticker = pos.get('instrument', {}).get('ticker', 'Unknown')
 
+            # Check if the ticker is in our merge list. If yes, rename it. If no, keep it.
+            display_name = TICKER_MERGES.get(raw_ticker, raw_ticker)
+
+            impact = pos.get('walletImpact', {})
             profit = impact.get('unrealizedProfitLoss', 0)
             cost = impact.get('totalCost', 0)
             current_val = impact.get('currentValue', 0)
 
             if current_val > 0:
                 data.append({
-                    'Ticker': ticker,
+                    'Ticker': display_name,  # Using the merged name!
                     'Current Value': current_val,
-                    'Unrealized Profit': profit,  # Restored!
-                    'Total Invested': cost  # Restored!
+                    'Unrealized Profit': profit,
+                    'Total Invested': cost
                 })
 
-        # 2. Manually inject Cash as its own "Asset"
+        # 2. Inject Cash
         free_cash = cash_info.get('free', 0)
         data.append({
             'Ticker': '💵 CASH',
             'Current Value': free_cash,
-            'Unrealized Profit': 0.0,  # Cash doesn't have an unrealized profit
-            'Total Invested': free_cash  # Cash is technically its own cost basis
+            'Unrealized Profit': 0.0,
+            'Total Invested': free_cash
         })
 
-        # 3. Build the DataFrame
+        # 3. Build the DataFrame and FUSE the duplicates
         df = pd.DataFrame(data)
+
+        # This is the Pandas magic: Group by the Ticker name, and sum up all the numbers!
+        df = df.groupby('Ticker', as_index=False).sum()
+
         total_value = df['Current Value'].sum()
 
-        st.subheader(f"Total Portfolio Value (Including Cash): £{total_value:,.2f}")
+        st.subheader(f"Total Portfolio Value: £{total_value:,.2f}")
 
         # --- INTERACTIVE UI: SLIDERS ---
         st.markdown("### 🎯 Set Target Allocations")
