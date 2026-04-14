@@ -114,78 +114,137 @@ if API_KEY:
         if not df_pie.empty:
             df_pie = df_pie.groupby('Ticker', as_index=False).sum()
 
-        # ---------------------------------------------------------
-        # NEW UI: STREAMLIT TABS
-        # ---------------------------------------------------------
-        tab1, tab2 = st.tabs(["📈 Main Portfolio (Personal)", "🥧 Managed Portfolio (Pie)"])
+            # ---------------------------------------------------------
+            # NEW UI: STREAMLIT TABS WITH EMBEDDED CHARTS
+            # ---------------------------------------------------------
+            tab1, tab2 = st.tabs(["📈 Main Portfolio (Personal)", "🥧 Managed Portfolio (Pie)"])
 
-        # === TAB 1: MAIN PORTFOLIO ===
-        with tab1:
-            if not df_personal.empty:
-                total_personal = df_personal['Current Value'].sum()
-                st.subheader(f"Personal Value: £{total_personal:,.2f}")
+            # === TAB 1: MAIN PORTFOLIO ===
+            with tab1:
+                if not df_personal.empty:
+                    total_personal = df_personal['Current Value'].sum()
+                    st.subheader(f"Personal Value: £{total_personal:,.2f}")
 
-                st.markdown("### 🎯 Rebalance Personal Portfolio")
-                col1, col2 = st.columns([1, 2])
+                    st.markdown("### 🎯 Rebalance Personal Portfolio")
+                    col1, col2 = st.columns([1, 2])
 
-                with col1:
-                    targets = {}
-                    total_target_pct = 0
-                    for ticker in df_personal['Ticker']:
-                        current_pct = (df_personal.loc[df_personal['Ticker'] == ticker, 'Current Value'].values[
-                                           0] / total_personal) * 100
-                        targets[ticker] = st.slider(f"{ticker} Target %", 0, 100, int(current_pct), 1,
-                                                    key=f"main_{ticker}")
-                        total_target_pct += targets[ticker]
+                    with col1:
+                        targets = {}
+                        total_target_pct = 0
+                        for ticker in df_personal['Ticker']:
+                            current_pct = (df_personal.loc[df_personal['Ticker'] == ticker, 'Current Value'].values[
+                                               0] / total_personal) * 100
+                            targets[ticker] = st.slider(f"{ticker} Target %", 0, 100, int(current_pct), 1,
+                                                        key=f"main_{ticker}")
+                            total_target_pct += targets[ticker]
 
-                    if total_target_pct != 100:
-                        st.warning(f"Total Target: {total_target_pct}%")
-                    else:
-                        st.success("100% Allocated!")
+                        if total_target_pct != 100:
+                            st.warning(f"Total Target: {total_target_pct}%")
+                        else:
+                            st.success("100% Allocated!")
 
-                with col2:
-                    df_personal['Target %'] = df_personal['Ticker'].map(targets) / 100
-                    df_personal['Target Value (£)'] = total_personal * df_personal['Target %']
-                    df_personal['Action Amount (£)'] = df_personal['Target Value (£)'] - df_personal['Current Value']
-
-
-                    def format_action(val):
-                        if val > 1:
-                            return f"🟢 BUY £{abs(val):.2f}"
-                        elif val < -1:
-                            return f"🔴 SELL £{abs(val):.2f}"
-                        return "⚪ HOLD"
+                    with col2:
+                        df_personal['Target %'] = df_personal['Ticker'].map(targets) / 100
+                        df_personal['Target Value (£)'] = total_personal * df_personal['Target %']
+                        df_personal['Action Amount (£)'] = df_personal['Target Value (£)'] - df_personal[
+                            'Current Value']
 
 
-                    df_personal['Action'] = df_personal['Action Amount (£)'].apply(format_action)
-                    st.dataframe(df_personal[['Ticker', 'Current Value', 'Target Value (£)', 'Action']],
+                        def format_action(val):
+                            if val > 1:
+                                return f"🟢 BUY £{abs(val):.2f}"
+                            elif val < -1:
+                                return f"🔴 SELL £{abs(val):.2f}"
+                            return "⚪ HOLD"
+
+
+                        df_personal['Action'] = df_personal['Action Amount (£)'].apply(format_action)
+                        st.dataframe(df_personal[['Ticker', 'Current Value', 'Target Value (£)', 'Action']],
+                                     use_container_width=True, hide_index=True)
+
+                    # --- TAB 1 CHART: Personal P/L ---
+                    st.divider()
+                    st.markdown("### 📊 Personal Profit & Loss")
+
+                    fig1, ax1 = plt.subplots(figsize=(10, 5))
+                    # Filter out CASH since it doesn't have a P/L
+                    df_pers_bar = df_personal[df_personal['Ticker'] != '💵 CASH'].sort_values(by='Unrealized Profit',
+                                                                                             ascending=True)
+
+                    colors1 = ['#ff4c4c' if x < 0 else '#4caf50' for x in df_pers_bar['Unrealized Profit']]
+                    bars1 = ax1.barh(df_pers_bar['Ticker'], df_pers_bar['Unrealized Profit'], color=colors1,
+                                     edgecolor='black')
+
+                    ax1.set_xlabel("Unrealized Profit (£)", fontsize=10)
+                    ax1.set_title("Personal Unrealized P/L", fontweight='bold')
+
+                    # Dynamic labels
+                    max_profit_pers = max(abs(df_pers_bar['Unrealized Profit'].max()),
+                                          abs(df_pers_bar['Unrealized Profit'].min()), 1)  # Safety fallback
+                    for bar in bars1:
+                        xval = bar.get_width()
+                        offset = (max_profit_pers * 0.05) if xval >= 0 else -(max_profit_pers * 0.05)
+                        ha = 'left' if xval >= 0 else 'right'
+                        ax1.text(xval + offset, bar.get_y() + bar.get_height() / 2, f'{xval:+.2f}', va='center', ha=ha,
+                                 fontsize=10, fontweight='bold')
+
+                    ax1.axvline(0, color='black', linewidth=1.5, linestyle='--')
+                    st.pyplot(fig1)
+
+            # === TAB 2: MANAGED PIE ===
+            with tab2:
+                if not df_pie.empty:
+                    total_pie = df_pie['Current Value'].sum()
+                    st.subheader(f"Managed Pie Value: £{total_pie:,.2f}")
+
+                    st.markdown("### 📋 Pie Asset Breakdown")
+
+                    pie_display = df_pie.copy()
+                    pie_display['Allocation %'] = (pie_display['Current Value'] / total_pie) * 100
+                    pie_display['Allocation %'] = pie_display['Allocation %'].map("{:.1f}%".format)
+
+                    st.dataframe(pie_display[['Ticker', 'Current Value', 'Unrealized Profit', 'Allocation %']],
                                  use_container_width=True, hide_index=True)
 
-        # === TAB 2: MANAGED PIE ===
-        with tab2:
-            if not df_pie.empty:
-                total_pie = df_pie['Current Value'].sum()
-                st.subheader(f"Managed Pie Value: £{total_pie:,.2f}")
+                    # --- TAB 2 CHARTS: Allocation Pie AND P/L Bar Chart Side-by-Side ---
+                    st.divider()
+                    st.markdown("### 📊 Managed Pie Visualizations")
 
-                st.markdown("### 📊 Pie Asset Breakdown")
+                    # Create a 1-row, 2-column layout for the Pie visuals
+                    fig2, (ax_pie, ax_bar) = plt.subplots(1, 2, figsize=(14, 6))
 
-                # Show a clean table of what is exactly in the pie
-                pie_display = df_pie.copy()
-                pie_display['Allocation %'] = (pie_display['Current Value'] / total_pie) * 100
-                pie_display['Allocation %'] = pie_display['Allocation %'].map("{:.1f}%".format)
+                    # 1. Left Chart: The Pie Allocation
+                    df_pie_sorted = df_pie.sort_values(by='Current Value', ascending=False)
+                    ax_pie.pie(df_pie_sorted['Current Value'], labels=df_pie_sorted['Ticker'], autopct='%1.1f%%',
+                               colors=plt.cm.Paired(range(len(df_pie_sorted))),
+                               wedgeprops={'edgecolor': 'white', 'linewidth': 1})
+                    ax_pie.set_title("Current Pie Allocation", fontweight='bold')
 
-                st.dataframe(pie_display[['Ticker', 'Current Value', 'Unrealized Profit', 'Allocation %']],
-                             use_container_width=True, hide_index=True)
+                    # 2. Right Chart: The P/L Bar Chart
+                    df_pie_bar = df_pie.sort_values(by='Unrealized Profit', ascending=True)
+                    colors2 = ['#ff4c4c' if x < 0 else '#4caf50' for x in df_pie_bar['Unrealized Profit']]
+                    bars2 = ax_bar.barh(df_pie_bar['Ticker'], df_pie_bar['Unrealized Profit'], color=colors2,
+                                        edgecolor='black')
 
-                # Draw a quick native Streamlit Pie Chart (using Altair under the hood via st.scatter_chart or similar, but for simplicity we'll use matplotlib)
-                fig_pie, ax_pie = plt.subplots(figsize=(6, 6))
-                df_pie_sorted = df_pie.sort_values(by='Current Value', ascending=False)
-                ax_pie.pie(df_pie_sorted['Current Value'], labels=df_pie_sorted['Ticker'], autopct='%1.1f%%',
-                           colors=plt.cm.Paired(range(len(df_pie_sorted))))
-                ax_pie.set_title("Managed Pie Allocation")
-                st.pyplot(fig_pie)
-            else:
-                st.info("No active Pies found in this account.")
+                    ax_bar.set_xlabel("Unrealized Profit (£)", fontsize=10)
+                    ax_bar.set_title("Pie Unrealized P/L", fontweight='bold')
+
+                    max_profit_pie = max(abs(df_pie_bar['Unrealized Profit'].max()),
+                                         abs(df_pie_bar['Unrealized Profit'].min()), 1)
+                    for bar in bars2:
+                        xval = bar.get_width()
+                        offset = (max_profit_pie * 0.05) if xval >= 0 else -(max_profit_pie * 0.05)
+                        ha = 'left' if xval >= 0 else 'right'
+                        ax_bar.text(xval + offset, bar.get_y() + bar.get_height() / 2, f'{xval:+.2f}', va='center',
+                                    ha=ha, fontsize=10, fontweight='bold')
+
+                    ax_bar.axvline(0, color='black', linewidth=1.5, linestyle='--')
+
+                    plt.tight_layout()
+                    st.pyplot(fig2)
+
+                else:
+                    st.info("No active Pies found in this account.")
 
 else:
     st.info("👈 Enter your Trading 212 API Key in the sidebar to load your portfolio.")
