@@ -183,68 +183,104 @@ if API_KEY:
                                           abs(df_pers_bar['Unrealized Profit'].min()), 1)  # Safety fallback
                     for bar in bars1:
                         xval = bar.get_width()
-                        offset = (max_profit_pers * 0.05) if xval >= 0 else -(max_profit_pers * 0.05)
-                        ha = 'left' if xval >= 0 else 'right'
+                        offset = (max_profit_pers * 0.05) if xval >= 0 else (max_profit_pers * 0.1)
+                        ha = 'left' if xval >= 0 else 'left'
                         ax1.text(xval + offset, bar.get_y() + bar.get_height() / 2, f'{xval:+.2f}', va='center', ha=ha,
                                  fontsize=10, fontweight='bold')
 
                     ax1.axvline(0, color='black', linewidth=1.5, linestyle='--')
                     st.pyplot(fig1)
 
-            # === TAB 2: MANAGED PIE ===
-            with tab2:
-                if not df_pie.empty:
-                    total_pie = df_pie['Current Value'].sum()
-                    st.subheader(f"Managed Pie Value: £{total_pie:,.2f}")
+                    # === TAB 2: MANAGED PIE ===
+                    with tab2:
+                        if not df_pie.empty:
+                            total_pie = df_pie['Current Value'].sum()
+                            st.subheader(f"Managed Pie Value: £{total_pie:,.2f}")
 
-                    st.markdown("### 📋 Pie Asset Breakdown")
+                            # --- NEW: Pie Rebalancing Calculator ---
+                            st.markdown("### 🎯 Rebalance Managed Pie")
+                            col1_pie, col2_pie = st.columns([1, 2])
 
-                    pie_display = df_pie.copy()
-                    pie_display['Allocation %'] = (pie_display['Current Value'] / total_pie) * 100
-                    pie_display['Allocation %'] = pie_display['Allocation %'].map("{:.1f}%".format)
+                            with col1_pie:
+                                st.write("Adjust target allocations for the Pie:")
+                                pie_targets = {}
+                                pie_total_target_pct = 0
 
-                    st.dataframe(pie_display[['Ticker', 'Current Value', 'Unrealized Profit', 'Allocation %']],
-                                 use_container_width=True, hide_index=True)
+                                # Generate sliders using df_pie and a UNIQUE key prefix
+                                for ticker in df_pie['Ticker']:
+                                    current_pct = (df_pie.loc[df_pie['Ticker'] == ticker, 'Current Value'].values[
+                                                       0] / total_pie) * 100
+                                    # Notice the key=f"pie_{ticker}" - This prevents crashes!
+                                    pie_targets[ticker] = st.slider(f"{ticker} Target %", 0, 100, int(current_pct), 1,
+                                                                    key=f"pie_{ticker}")
+                                    pie_total_target_pct += pie_targets[ticker]
 
-                    # --- TAB 2 CHARTS: Allocation Pie AND P/L Bar Chart Side-by-Side ---
-                    st.divider()
-                    st.markdown("### 📊 Managed Pie Visualizations")
+                                if pie_total_target_pct != 100:
+                                    st.warning(f"Total Target: {pie_total_target_pct}% (Should equal 100%)")
+                                else:
+                                    st.success("100% Allocated!")
 
-                    # Create a 1-row, 2-column layout for the Pie visuals
-                    fig2, (ax_pie, ax_bar) = plt.subplots(1, 2, figsize=(14, 6))
+                            with col2_pie:
+                                # Apply the math to the pie dataframe
+                                df_pie['Target %'] = df_pie['Ticker'].map(pie_targets) / 100
+                                df_pie['Target Value (£)'] = total_pie * df_pie['Target %']
+                                df_pie['Action Amount (£)'] = df_pie['Target Value (£)'] - df_pie['Current Value']
 
-                    # 1. Left Chart: The Pie Allocation
-                    df_pie_sorted = df_pie.sort_values(by='Current Value', ascending=False)
-                    ax_pie.pie(df_pie_sorted['Current Value'], labels=df_pie_sorted['Ticker'], autopct='%1.1f%%',
-                               colors=plt.cm.Paired(range(len(df_pie_sorted))),
-                               wedgeprops={'edgecolor': 'white', 'linewidth': 1})
-                    ax_pie.set_title("Current Pie Allocation", fontweight='bold')
+                                # We can reuse the format_action function from Tab 1!
+                                df_pie['Action'] = df_pie['Action Amount (£)'].apply(format_action)
 
-                    # 2. Right Chart: The P/L Bar Chart
-                    df_pie_bar = df_pie.sort_values(by='Unrealized Profit', ascending=True)
-                    colors2 = ['#ff4c4c' if x < 0 else '#4caf50' for x in df_pie_bar['Unrealized Profit']]
-                    bars2 = ax_bar.barh(df_pie_bar['Ticker'], df_pie_bar['Unrealized Profit'], color=colors2,
-                                        edgecolor='black')
+                                st.markdown("### 📋 Pie Action Plan")
+                                st.dataframe(df_pie[['Ticker', 'Current Value', 'Target Value (£)', 'Action']],
+                                             use_container_width=True, hide_index=True)
 
-                    ax_bar.set_xlabel("Unrealized Profit (£)", fontsize=10)
-                    ax_bar.set_title("Pie Unrealized P/L", fontweight='bold')
+                            # --- TAB 2 CHARTS: Allocation Pie AND P/L Bar Chart ---
+                            st.divider()
+                            st.markdown("### 📊 Managed Pie Visualizations")
 
-                    max_profit_pie = max(abs(df_pie_bar['Unrealized Profit'].max()),
-                                         abs(df_pie_bar['Unrealized Profit'].min()), 1)
-                    for bar in bars2:
-                        xval = bar.get_width()
-                        offset = (max_profit_pie * 0.05) if xval >= 0 else -(max_profit_pie * 0.05)
-                        ha = 'left' if xval >= 0 else 'right'
-                        ax_bar.text(xval + offset, bar.get_y() + bar.get_height() / 2, f'{xval:+.2f}', va='center',
-                                    ha=ha, fontsize=10, fontweight='bold')
+                            fig2, (ax_pie, ax_bar) = plt.subplots(1, 2, figsize=(14, 6))
 
-                    ax_bar.axvline(0, color='black', linewidth=1.5, linestyle='--')
+                            # 1. Left Chart: The Pie Allocation (Using user's Target % if available, otherwise Current Value)
+                            df_pie_sorted = df_pie.sort_values(by='Current Value', ascending=False)
 
-                    plt.tight_layout()
-                    st.pyplot(fig2)
+                            # We will show the TARGET allocation on the pie chart if they have set it,
+                            # otherwise we show the current allocation.
+                            if pie_total_target_pct == 100:
+                                pie_chart_data = df_pie_sorted['Target %']
+                                pie_title = "Target Pie Allocation"
+                            else:
+                                pie_chart_data = df_pie_sorted['Current Value']
+                                pie_title = "Current Pie Allocation"
 
-                else:
-                    st.info("No active Pies found in this account.")
+                            ax_pie.pie(pie_chart_data, labels=df_pie_sorted['Ticker'], autopct='%1.1f%%',
+                                       colors=plt.cm.Paired(range(len(df_pie_sorted))),
+                                       wedgeprops={'edgecolor': 'white', 'linewidth': 1})
+                            ax_pie.set_title(pie_title, fontweight='bold')
+
+                            # 2. Right Chart: The P/L Bar Chart
+                            df_pie_bar = df_pie.sort_values(by='Unrealized Profit', ascending=True)
+                            colors2 = ['#ff4c4c' if x < 0 else '#4caf50' for x in df_pie_bar['Unrealized Profit']]
+                            bars2 = ax_bar.barh(df_pie_bar['Ticker'], df_pie_bar['Unrealized Profit'], color=colors2,
+                                                edgecolor='black')
+
+                            ax_bar.set_xlabel("Unrealized Profit (£)", fontsize=10)
+                            ax_bar.set_title("Pie Unrealized P/L", fontweight='bold')
+
+                            max_profit_pie = max(abs(df_pie_bar['Unrealized Profit'].max()),
+                                                 abs(df_pie_bar['Unrealized Profit'].min()), 1)
+                            for bar in bars2:
+                                xval = bar.get_width()
+                                offset = (max_profit_pie * 0.05) if xval >= 0 else -(max_profit_pie * 0.05)
+                                ha = 'left' if xval >= 0 else 'right'
+                                ax_bar.text(xval + offset, bar.get_y() + bar.get_height() / 2, f'{xval:+.2f}',
+                                            va='center', ha=ha, fontsize=10, fontweight='bold')
+
+                            ax_bar.axvline(0, color='black', linewidth=1.5, linestyle='--')
+
+                            plt.tight_layout()
+                            st.pyplot(fig2)
+
+                        else:
+                            st.info("No active Pies found in this account.")
 
 else:
     st.info("👈 Enter your Trading 212 API Key in the sidebar to load your portfolio.")
