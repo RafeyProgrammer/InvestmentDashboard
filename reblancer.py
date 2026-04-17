@@ -2,6 +2,8 @@ import streamlit as st
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+import yfinance as yf
+import plotly.express as px
 
 # 1. Page Configuration
 st.set_page_config(page_title="T212 Rebalancer", layout="wide")
@@ -19,6 +21,54 @@ def format_action(val):
     if val > 1: return f"🟢 BUY £{abs(val):.2f}"
     elif val < -1: return f"🔴 SELL £{abs(val):.2f}"
     return "HOLD"
+
+
+@st.cache_data(ttl=86400) # Cache yfinance data for 24 hours
+def build_automated_sector_heatmap(t212_tickers):
+    automated_map = {}
+
+    # ---------------------------------------------------------
+    # THE OVERRIDE DICTIONARY (For SPACs, Mergers, and Quirks)
+    # Format -> 'Exact_T212_Ticker': 'Yahoo_Finance_Ticker'
+    # ---------------------------------------------------------
+    TICKER_OVERRIDES = {
+        'IPOE_US_EQ': 'SOFI',  # SoFi (Formerly IPOE)
+        'FB_US_EQ': 'META',  # Meta (Formerly Facebook)
+        'SBE_US_EQ': 'CHPT',  # ChargePoint (Formerly Switchback Energy)
+    }
+
+    for t212_ticker in t212_tickers:
+        # Skip custom names or cash
+        if t212_ticker == "💵 CASH" or "Combined" in t212_ticker:
+            continue
+
+        # 1. Check our manual override dictionary FIRST
+        if t212_ticker in TICKER_OVERRIDES:
+            yf_ticker = TICKER_OVERRIDES[t212_ticker]
+
+        # 2. If it's not an edge case, use the automated translation
+        else:
+            base_ticker = t212_ticker.split('_')[0]
+            yf_ticker = base_ticker
+
+            # Non-US stocks usually need an exchange suffix for Yahoo
+            if "US" not in t212_ticker:
+                if base_ticker.lower() == 'rrl':
+                    yf_ticker = 'RR.L'
+                else:
+                    yf_ticker = f"{base_ticker}.L"
+
+        # 3. Fetch the Sector from Yahoo using the correct ticker
+        try:
+            stock_info = yf.Ticker(yf_ticker).info
+            # If it's an ETF, it won't have a 'sector', so we fall back to 'Fund / ETF'
+            sector = stock_info.get('sector', 'Fund / ETF')
+            automated_map[t212_ticker] = sector
+        except Exception:
+            # Fallback if Yahoo doesn't recognize it at all
+            automated_map[t212_ticker] = 'Uncategorized'
+
+    return automated_map
 
 # 3. Caching the API Call (Stores data for 60 seconds to prevent rate limits)
 @st.cache_data(ttl=300)
@@ -217,6 +267,47 @@ if API_KEY:
                     plt.tight_layout()
                     st.pyplot(fig1)
                     plt.close(fig1)  # CRITICAL FIX: Clears memory instantly to prevent hanging
+
+                    # ---------------------------------------------------------
+                    # NEW AUTOMATED: Sector Exposure & Risk Heatmap
+                    # ---------------------------------------------------------
+                    st.divider()
+                    st.markdown("### 🗺️ Sector Exposure & Risk Heatmap")
+
+                    # Filter out cash first
+                    df_heatmap = df_personal[df_personal['Ticker'] != '💵 CASH'].copy()
+
+                    if not df_heatmap.empty:
+                        # 1. Fetch the automated map using the unique tickers in your portfolio
+                        # We add .tolist() to convert the unhashable Pandas array into a standard Python list
+                        unique_tickers = df_heatmap['Ticker'].unique().tolist()
+
+                        with st.spinner("Automating sector classification..."):
+                            AUTOMATED_SECTOR_MAP = build_automated_sector_heatmap(unique_tickers)
+
+                        # 2. Manually add any custom combined tickers you created earlier
+                        AUTOMATED_SECTOR_MAP['Alphabet (Combined)'] = 'Technology'
+
+                        # 3. Apply the map
+                        df_heatmap['Sector'] = df_heatmap['Ticker'].map(AUTOMATED_SECTOR_MAP).fillna('Uncategorized')
+
+                        # 4. Build the Plotly Treemap
+                        fig_tree = px.treemap(
+                            df_heatmap,
+                            path=[px.Constant("Total Portfolio"), 'Sector', 'Ticker'],
+                            values='Current Value',
+                            color='Unrealized Profit',
+                            color_continuous_scale='RdYlGn',
+                            color_continuous_midpoint=0,
+                            hover_data=['Target Value (£)', 'Action']
+                        )
+
+                        fig_tree.update_traces(root_color="lightgrey")
+                        fig_tree.update_layout(margin=dict(t=30, l=10, r=10, b=10), height=600)
+
+                        st.plotly_chart(fig_tree, use_container_width=True)
+                    else:
+                        st.info("No stocks available to map.")
                 else:
                     st.info("No active personal investments found.")
 
