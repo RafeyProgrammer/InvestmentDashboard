@@ -61,6 +61,22 @@ def build_automated_sector_heatmap(raw_tickers):
 
     return automated_map
 
+
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def fetch_historical_data(yf_ticker):
+    """ take a single ticker and return the last 3 months worth of price data including date"""
+    try:
+        stock = yf.Ticker(yf_ticker)
+        # Fetch 3 months of daily closing prices
+        hist = stock.history(period="3mo", interval="1d")
+
+        if not hist.empty:
+            hist = hist.reset_index()  # Pull the Date out of the index so Plotly can read it
+            return hist[['Date', 'Close']]
+        return None
+    except Exception:
+        return None
+
 # 3. Caching the API Call (Stores data for 60 seconds to prevent rate limits)
 @st.cache_data(ttl=300)
 def fetch_portfolio(key, secret):
@@ -122,7 +138,7 @@ if API_KEY:
             else:
                 # Strip away the _US_EQ ugly suffix for normal stocks
                 display_name = raw_ticker.split('_')[0]
-                if display_name == 'RRl': display_name = 'RR'  # Make Rolls Royce look cleaner
+                if display_name == 'RRl': display_name = 'RR'  # Make Rolls-Royce look cleaner
 
             qty_total = pos.get('quantity', 0)
             qty_personal = pos.get('quantityAvailableForTrading', 0)
@@ -321,6 +337,62 @@ if API_KEY:
                         st.info("No stocks available to map.")
                 else:
                     st.info("No active personal investments found.")
+
+                # ==========================================
+                # NEW: 3-Month Historical Price Chart
+                # ==========================================
+                st.divider()
+                st.markdown("### 📈 3-Month Price History")
+
+                # 1. Create a clean list of options (No Cash!)
+                chart_options = df_personal[df_personal['Ticker'] != '💵 CASH']['Ticker'].unique().tolist()
+
+                if chart_options:
+                    # 2. Draw the dropdown menu
+                    selected_clean_name = st.selectbox("Select Asset to view history:", chart_options)
+
+                    # 3. Look up the Hidden 'Raw Ticker' for the asset they selected
+                    raw_ticker_for_chart = \
+                    df_personal.loc[df_personal['Ticker'] == selected_clean_name, 'Raw Ticker'].values[0]
+
+                    # 4. Translate the Raw Ticker for Yahoo (Reusing our override logic)
+                    YAHOO_OVERRIDES = {'IPOE_US_EQ': 'SOFI', 'FB_US_EQ': 'META', 'GOOG_US_EQ': 'GOOG',
+                                       'GOOGL_US_EQ': 'GOOGL'}
+
+                    if raw_ticker_for_chart in YAHOO_OVERRIDES:
+                        yf_ticker = YAHOO_OVERRIDES[raw_ticker_for_chart]
+                    else:
+                        base_ticker = raw_ticker_for_chart.split('_')[0]
+                        yf_ticker = base_ticker
+                        if "US" not in raw_ticker_for_chart:
+                            if base_ticker.lower() == 'rrl':
+                                yf_ticker = 'RR.L'
+                            else:
+                                yf_ticker = f"{base_ticker}.L"
+
+                    # 5. Fetch the data
+                    with st.spinner(f"Fetching chart for {selected_clean_name}..."):
+                        hist_data = fetch_historical_data(yf_ticker)
+
+                    # 6. Draw the interactive Plotly Line Chart
+                    if hist_data is not None and not hist_data.empty:
+                        fig_line = px.line(
+                            hist_data,
+                            x='Date',
+                            y='Close',
+                            title=f"{selected_clean_name} - Past 3 Months",
+                            labels={'Close': 'Closing Price', 'Date': ''}
+                        )
+
+                        # Styling for that sleek terminal look
+                        fig_line.update_traces(line_color='#1f77b4', line_width=2.5)
+                        # hovermode="x unified" draws a vertical line that follows your mouse
+                        fig_line.update_layout(margin=dict(t=40, l=10, r=10, b=10), height=400,
+                                               hovermode="x unified")
+
+                        st.plotly_chart(fig_line, use_container_width=True)
+                    else:
+                        st.warning(f"Could not load historical data for {selected_clean_name}.")
 
             # === TAB 2: MANAGED PIE ===
             with tab2:
