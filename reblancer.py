@@ -338,61 +338,61 @@ if API_KEY:
                 else:
                     st.info("No active personal investments found.")
 
-                # ==========================================
-                # NEW: 3-Month Historical Price Chart
-                # ==========================================
-                st.divider()
-                st.markdown("### 📈 3-Month Price History")
+            # ==========================================
+            # NEW: 3-Month Historical Price Chart
+            # ==========================================
+            st.divider()
+            st.markdown("### 📈 3-Month Price History")
 
-                # 1. Create a clean list of options (No Cash!)
-                chart_options = df_personal[df_personal['Ticker'] != '💵 CASH']['Ticker'].unique().tolist()
+            # 1. Create a clean list of options (No Cash!)
+            chart_options = df_personal[df_personal['Ticker'] != '💵 CASH']['Ticker'].unique().tolist()
 
-                if chart_options:
-                    # 2. Draw the dropdown menu
-                    selected_clean_name = st.selectbox("Select Asset to view history:", chart_options)
+            if chart_options:
+                # 2. Draw the dropdown menu
+                selected_clean_name = st.selectbox("Select Asset to view history:", chart_options)
 
-                    # 3. Look up the Hidden 'Raw Ticker' for the asset they selected
-                    raw_ticker_for_chart = \
-                    df_personal.loc[df_personal['Ticker'] == selected_clean_name, 'Raw Ticker'].values[0]
+                # 3. Look up the Hidden 'Raw Ticker' for the asset they selected
+                raw_ticker_for_chart = \
+                df_personal.loc[df_personal['Ticker'] == selected_clean_name, 'Raw Ticker'].values[0]
 
-                    # 4. Translate the Raw Ticker for Yahoo (Reusing our override logic)
-                    YAHOO_OVERRIDES = {'IPOE_US_EQ': 'SOFI', 'FB_US_EQ': 'META', 'GOOG_US_EQ': 'GOOG',
-                                       'GOOGL_US_EQ': 'GOOGL'}
+                # 4. Translate the Raw Ticker for Yahoo (Reusing our override logic)
+                YAHOO_OVERRIDES = {'IPOE_US_EQ': 'SOFI', 'FB_US_EQ': 'META', 'GOOG_US_EQ': 'GOOG',
+                                   'GOOGL_US_EQ': 'GOOGL'}
 
-                    if raw_ticker_for_chart in YAHOO_OVERRIDES:
-                        yf_ticker = YAHOO_OVERRIDES[raw_ticker_for_chart]
-                    else:
-                        base_ticker = raw_ticker_for_chart.split('_')[0]
-                        yf_ticker = base_ticker
-                        if "US" not in raw_ticker_for_chart:
-                            if base_ticker.lower() == 'rrl':
-                                yf_ticker = 'RR.L'
-                            else:
-                                yf_ticker = f"{base_ticker}.L"
+                if raw_ticker_for_chart in YAHOO_OVERRIDES:
+                    yf_ticker = YAHOO_OVERRIDES[raw_ticker_for_chart]
+                else:
+                    base_ticker = raw_ticker_for_chart.split('_')[0]
+                    yf_ticker = base_ticker
+                    if "US" not in raw_ticker_for_chart:
+                        if base_ticker.lower() == 'rrl':
+                            yf_ticker = 'RR.L'
+                        else:
+                            yf_ticker = f"{base_ticker}.L"
 
-                    # 5. Fetch the data
-                    with st.spinner(f"Fetching chart for {selected_clean_name}..."):
-                        hist_data = fetch_historical_data(yf_ticker)
+                # 5. Fetch the data
+                with st.spinner(f"Fetching chart for {selected_clean_name}..."):
+                    hist_data = fetch_historical_data(yf_ticker)
 
-                    # 6. Draw the interactive Plotly Line Chart
-                    if hist_data is not None and not hist_data.empty:
-                        fig_line = px.line(
-                            hist_data,
-                            x='Date',
-                            y='Close',
-                            title=f"{selected_clean_name} - Past 3 Months",
-                            labels={'Close': 'Closing Price', 'Date': ''}
-                        )
+                # 6. Draw the interactive Plotly Line Chart
+                if hist_data is not None and not hist_data.empty:
+                    fig_line = px.line(
+                        hist_data,
+                        x='Date',
+                        y='Close',
+                        title=f"{selected_clean_name} - Past 3 Months",
+                        labels={'Close': 'Closing Price', 'Date': ''}
+                    )
 
-                        # Styling for that sleek terminal look
-                        fig_line.update_traces(line_color='#1f77b4', line_width=2.5)
-                        # hovermode="x unified" draws a vertical line that follows your mouse
-                        fig_line.update_layout(margin=dict(t=40, l=10, r=10, b=10), height=400,
-                                               hovermode="x unified")
+                    # Styling for that sleek terminal look
+                    fig_line.update_traces(line_color='#1f77b4', line_width=2.5)
+                    # hovermode="x unified" draws a vertical line that follows your mouse
+                    fig_line.update_layout(margin=dict(t=40, l=10, r=10, b=10), height=400,
+                                           hovermode="x unified")
 
-                        st.plotly_chart(fig_line, use_container_width=True)
-                    else:
-                        st.warning(f"Could not load historical data for {selected_clean_name}.")
+                    st.plotly_chart(fig_line, use_container_width=True)
+                else:
+                    st.warning(f"Could not load historical data for {selected_clean_name}.")
 
             # === TAB 2: MANAGED PIE ===
             with tab2:
