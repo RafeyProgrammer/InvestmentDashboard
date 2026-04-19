@@ -24,7 +24,7 @@ def format_action(val):
 
 
 @st.cache_data(ttl=86400) # Cache yfinance data for 24 hours
-def build_automated_sector_heatmap(t212_tickers):
+def build_automated_sector_heatmap(raw_tickers):
     automated_map = {}
 
     # ---------------------------------------------------------
@@ -37,36 +37,27 @@ def build_automated_sector_heatmap(t212_tickers):
         'SBE_US_EQ': 'CHPT',  # ChargePoint (Formerly Switchback Energy)
     }
 
-    for t212_ticker in t212_tickers:
-        # Skip custom names or cash
-        if t212_ticker == "💵 CASH" or "Combined" in t212_ticker:
+    for raw_ticker in raw_tickers:
+        if raw_ticker == "💵 CASH":
             continue
 
-        # 1. Check our manual override dictionary FIRST
-        if t212_ticker in TICKER_OVERRIDES:
-            yf_ticker = TICKER_OVERRIDES[t212_ticker]
-
-        # 2. If it's not an edge case, use the automated translation
+        if raw_ticker in TICKER_OVERRIDES:
+            yf_ticker = TICKER_OVERRIDES[raw_ticker]
         else:
-            base_ticker = t212_ticker.split('_')[0]
+            base_ticker = raw_ticker.split('_')[0]
             yf_ticker = base_ticker
-
-            # Non-US stocks usually need an exchange suffix for Yahoo
-            if "US" not in t212_ticker:
+            if "US" not in raw_ticker:
                 if base_ticker.lower() == 'rrl':
                     yf_ticker = 'RR.L'
                 else:
                     yf_ticker = f"{base_ticker}.L"
 
-        # 3. Fetch the Sector from Yahoo using the correct ticker
         try:
             stock_info = yf.Ticker(yf_ticker).info
-            # If it's an ETF, it won't have a 'sector', so we fall back to 'Fund / ETF'
             sector = stock_info.get('sector', 'Fund / ETF')
-            automated_map[t212_ticker] = sector
+            automated_map[raw_ticker] = sector
         except Exception:
-            # Fallback if Yahoo doesn't recognize it at all
-            automated_map[t212_ticker] = 'Uncategorized'
+            automated_map[raw_ticker] = 'Uncategorized'
 
     return automated_map
 
@@ -108,21 +99,31 @@ if API_KEY:
     cash_info = fetch_cash(API_KEY, sec_key)
 
     if positions and cash_info:
-        TICKER_MERGES = {
+        # ---------------------------------------------------------
+        # DISPLAY OVERRIDES: What you actually want to see on screen
+        # ---------------------------------------------------------
+        DISPLAY_OVERRIDES = {
+            'IPOE_US_EQ': 'SOFI',
+            'FB_US_EQ': 'META',
             'GOOG_US_EQ': 'Alphabet (Combined)',
             'GOOGL_US_EQ': 'Alphabet (Combined)'
         }
 
-        # We now need TWO separate lists
         personal_data = []
         pie_data = []
 
         # 1. Loop and mathematically split the data
         for pos in positions:
             raw_ticker = pos.get('instrument', {}).get('ticker', 'Unknown')
-            display_name = TICKER_MERGES.get(raw_ticker, raw_ticker)
 
-            # Get the share counts to calculate the split ratio
+            # --- CLEANUP LOGIC ---
+            if raw_ticker in DISPLAY_OVERRIDES:
+                display_name = DISPLAY_OVERRIDES[raw_ticker]
+            else:
+                # Strip away the _US_EQ ugly suffix for normal stocks
+                display_name = raw_ticker.split('_')[0]
+                if display_name == 'RRl': display_name = 'RR'  # Make Rolls Royce look cleaner
+
             qty_total = pos.get('quantity', 0)
             qty_personal = pos.get('quantityAvailableForTrading', 0)
             qty_pie = pos.get('quantityInPies', 0)
@@ -133,43 +134,53 @@ if API_KEY:
             current_val = impact.get('currentValue', 0)
 
             if current_val > 0 and qty_total > 0:
-                # Calculate what percentage belongs to you vs the Pie
                 personal_ratio = qty_personal / qty_total
                 pie_ratio = qty_pie / qty_total
 
-                # Append to Personal Portfolio (if you own any outside the pie)
                 if qty_personal > 0:
                     personal_data.append({
-                        'Ticker': display_name,
+                        'Raw Ticker': raw_ticker,  # Hidden column for Yahoo
+                        'Ticker': display_name,  # Clean name for the UI!
                         'Current Value': current_val * personal_ratio,
                         'Unrealized Profit': profit * personal_ratio,
                         'Total Invested': cost * personal_ratio
                     })
 
-                # Append to Managed Pie Portfolio (if any are inside a pie)
                 if qty_pie > 0:
                     pie_data.append({
+                        'Raw Ticker': raw_ticker,
                         'Ticker': display_name,
                         'Current Value': current_val * pie_ratio,
                         'Unrealized Profit': profit * pie_ratio,
                         'Total Invested': cost * pie_ratio
                     })
 
-        # 2. Inject Cash (Assuming all uninvested free cash belongs to your main portfolio)
+        # 2. Inject Cash
         free_cash = cash_info.get('free', 0)
         personal_data.append({
-            'Ticker': '💵 CASH', 'Current Value': free_cash,
-            'Unrealized Profit': 0.0, 'Total Invested': free_cash
+            'Raw Ticker': '💵 CASH', 'Ticker': '💵 CASH',
+            'Current Value': free_cash, 'Unrealized Profit': 0.0, 'Total Invested': free_cash
         })
 
-        # 3. Build & Combine the DataFrames
+        # 3. Build & FUSE the DataFrames
+        # We must explicitly tell Pandas to keep the 'Raw Ticker' when merging duplicates (like GOOG/GOOGL)
         df_personal = pd.DataFrame(personal_data)
         if not df_personal.empty:
-            df_personal = df_personal.groupby('Ticker', as_index=False).sum()
+            df_personal = df_personal.groupby('Ticker', as_index=False).agg({
+                'Raw Ticker': 'first',
+                'Current Value': 'sum',
+                'Unrealized Profit': 'sum',
+                'Total Invested': 'sum'
+            })
 
         df_pie = pd.DataFrame(pie_data)
         if not df_pie.empty:
-            df_pie = df_pie.groupby('Ticker', as_index=False).sum()
+            df_pie = df_pie.groupby('Ticker', as_index=False).agg({
+                'Raw Ticker': 'first',
+                'Current Value': 'sum',
+                'Unrealized Profit': 'sum',
+                'Total Invested': 'sum'
+            })
 
             # ---------------------------------------------------------
             # NEW UI: STREAMLIT TABS WITH EMBEDDED CHARTS
@@ -280,7 +291,7 @@ if API_KEY:
                     if not df_heatmap.empty:
                         # 1. Fetch the automated map using the unique tickers in your portfolio
                         # We add .tolist() to convert the unhashable Pandas array into a standard Python list
-                        unique_tickers = df_heatmap['Ticker'].unique().tolist()
+                        unique_tickers = df_heatmap['Raw Ticker'].unique().tolist()
 
                         with st.spinner("Automating sector classification..."):
                             AUTOMATED_SECTOR_MAP = build_automated_sector_heatmap(unique_tickers)
@@ -289,7 +300,7 @@ if API_KEY:
                         AUTOMATED_SECTOR_MAP['Alphabet (Combined)'] = 'Technology'
 
                         # 3. Apply the map
-                        df_heatmap['Sector'] = df_heatmap['Ticker'].map(AUTOMATED_SECTOR_MAP).fillna('Uncategorized')
+                        df_heatmap['Sector'] = df_heatmap['Raw Ticker'].map(AUTOMATED_SECTOR_MAP).fillna('Uncategorized')
 
                         # 4. Build the Plotly Treemap
                         fig_tree = px.treemap(
