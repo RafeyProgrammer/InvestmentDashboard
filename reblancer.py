@@ -14,6 +14,11 @@ st.sidebar.header("Connection")
 API_KEY = st.sidebar.text_input("API Key", type="password")
 sec_key = st.sidebar.text_input("API Secret", type="password", help="...")
 
+# Section to input client cash reserve - so user can distinguish between client and personal funds
+st.sidebar.header("Portfolio Cash Split")
+client_cash_input = st.sidebar.number_input("Client cash (£)",
+                                            min_value=0.0,value=0.0,step=10.0,help="Enter the amount of cash that belongs to the pie (client)")
+
 # ---------------------------------------------------------
 # HELPER FUNCTIONS (Defined outside tabs to prevent crashes)
         # ---------------------------------------------------------
@@ -173,10 +178,24 @@ if API_KEY:
 
         # 2. Inject Cash
         free_cash = cash_info.get('free', 0)
+
+        # Calculate cash split between personal & pie
+        final_client_cash = min(client_cash_input,free_cash)
+        final_personal_cash = free_cash - final_client_cash # net personal cash
         personal_data.append({
             'Raw Ticker': '💵 CASH', 'Ticker': '💵 CASH',
-            'Current Value': free_cash, 'Unrealized Profit': 0.0, 'Total Invested': free_cash
+            'Current Value': final_personal_cash, 'Unrealized Profit': 0.0, 'Total Invested': final_personal_cash
         })
+
+        # Client (pie) cash added to pie section
+        if final_personal_cash > 0:
+            pie_data.append({
+                "Raw Ticker":"💵 CLIENT CASH",
+                "Ticker": "💵 CLIENT CASH",
+                "Current Value": final_client_cash,
+                "Unrealized Profit": 0.0,
+                "Total Invested": final_client_cash
+            })
 
         # 3. Build & FUSE the DataFrames
         # We must explicitly tell Pandas to keep the 'Raw Ticker' when merging duplicates (like GOOG/GOOGL)
@@ -450,7 +469,7 @@ if API_KEY:
                                wedgeprops={'edgecolor': 'white', 'linewidth': 1})
                     ax_pie.set_title(pie_title, fontweight='bold')
 
-                    df_pie_bar = df_pie.sort_values(by='Unrealized Profit', ascending=True)
+                    df_pie_bar = df_pie[df_pie["Ticker"] != "💵 CLIENT CASH"].sort_values(by="Unrealized Profit", ascending=True)
 
                     if not df_pie_bar.empty:
                         colors2 = ['#ff4c4c' if x < 0 else '#4caf50' for x in df_pie_bar['Unrealized Profit']]
