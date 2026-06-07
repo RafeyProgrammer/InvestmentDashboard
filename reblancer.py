@@ -228,6 +228,15 @@ if API_KEY:
                     total_personal = df_personal['Current Value'].sum()
                     st.subheader(f"Personal Value: £{total_personal:,.2f}")
 
+                    # NEW: Fresh cash Input
+                    fresh_personal_cash = st.number_input(
+                        "Add new cash deposit (£)",
+                        min_value=0.0,
+                        value=0.0,
+                        step=10.0,
+                        key="fresh_cash_pers"
+                    )
+
                     # --- Personal Rebalancing Calculator ---
                     st.markdown("### 🎯 Rebalance Personal Portfolio")
                     col1_pers, col2_pers = st.columns([1, 2])
@@ -251,12 +260,36 @@ if API_KEY:
 
                     with col2_pers:
                         df_personal['Target %'] = df_personal['Ticker'].map(pers_targets) / 100
-                        df_personal['Target Value (£)'] = total_personal * df_personal['Target %']
-                        df_personal['Action Amount (£)'] = df_personal['Target Value (£)'] - df_personal[
-                            'Current Value']
+
+                        # Calculate the FUTURE total value after fresh cash is injected
+                        simulated_total_personal = total_personal + fresh_personal_cash
+
+                        # Calculate target value based on the FUTURE portfolio value
+                        df_personal["Target Value (£)"] = simulated_total_personal * df_personal['Target %']
+
+                        # Calculate the raw difference
+                        df_personal["Action Amount (£)"] = df_personal["Target Value (£)"] - df_personal["Current Value"]
+
+                        # If no new cash use buy/sell system
+                        # If there is new cash set it to "Buy-Only" to help distribute new funds
+                        if fresh_personal_cash > 0:
+                            # If math says to sell force it to 0 as we are in Buy-only mode
+                            df_personal["Action Amount (£)"] = df_personal["Action Amount (£)"].clip(lower=0)
+
+                            # Custom function for buy-only mode
+                            def format_buy_only(val):
+                                return f"🟢 BUY £{val:.2f}" if val > 1 else "HOLD"
+                            df_personal["Action"] = df_personal["Action Amount (£)"].apply(format_buy_only)
+                        else:
+                            # Revert to original reblancer mode if no fresh cash
+                            df_personal["Action"] = df_personal["Action Amount (£)"].apply(format_action)
+
+                        #df_personal['Target Value (£)'] = total_personal * df_personal['Target %']
+                        #df_personal['Action Amount (£)'] = df_personal['Target Value (£)'] - df_personal[
+                            #'Current Value']
 
                         # Using the safely defined helper function
-                        df_personal['Action'] = df_personal['Action Amount (£)'].apply(format_action)
+                        #df_personal['Action'] = df_personal['Action Amount (£)'].apply(format_action)
 
                         st.markdown("### 📋 Personal Action Plan")
                         st.dataframe(df_personal[['Ticker', 'Current Value', 'Target Value (£)', 'Action']],
