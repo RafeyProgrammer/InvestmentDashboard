@@ -249,7 +249,7 @@ if API_KEY:
                         for ticker in df_personal['Ticker']:
                             current_pct = (df_personal.loc[df_personal['Ticker'] == ticker, 'Current Value'].values[
                                                0] / total_personal) * 100
-                            pers_targets[ticker] = st.slider(f"{ticker} Target %", 0, 100, int(current_pct), 1,
+                            pers_targets[ticker] = st.slider(f"{ticker} Target %", 0.0, 100.0, float(current_pct), 1.0,
                                                              key=f"main_{ticker}")
                             pers_total_target_pct += pers_targets[ticker]
 
