@@ -244,14 +244,21 @@ if API_KEY:
                     with col1_pers:
                         st.write("Adjust target allocations:")
                         pers_targets = {}
-                        pers_total_target_pct = 0
+                        pers_total_target_pct = 0.0
 
                         for ticker in df_personal['Ticker']:
-                            current_pct = (df_personal.loc[df_personal['Ticker'] == ticker, 'Current Value'].values[
-                                               0] / total_personal) * 100
-                            pers_targets[ticker] = st.slider(f"{ticker} Target %", 0.0, 100.0, float(current_pct), 1.0,
-                                                             key=f"main_{ticker}")
+                            current_pct = float((df_personal.loc[df_personal['Ticker'] == ticker, 'Current Value'].values[0] / total_personal) * 100)
+                            pers_targets[ticker] = st.number_input(
+                                f"{ticker} Target %",
+                                min_value=0.0,
+                                max_value=100.0,
+                                value=round(current_pct, 2),  # Start at current allocation rounded cleanly
+                                step=0.1,  # The increment size for the arrows
+                                format="%.2f",  # Forces 2-decimal floating point precision
+                                key=f"main_{ticker}"
+                            )
                             pers_total_target_pct += pers_targets[ticker]
+                            pers_total_target_pct = round(pers_total_target_pct, 2)
 
                         if pers_total_target_pct != 100:
                             st.warning(f"Total Target: {pers_total_target_pct}% (Should equal 100%)")
