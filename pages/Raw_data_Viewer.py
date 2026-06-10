@@ -181,18 +181,27 @@ if st.session_state.df_raw_data is not None:
         submit_all_edits = st.form_submit_button("⚡ Execute Matrix Cleaning Pipeline", type="primary",
                                                  use_container_width=True)
 
-    # ─── ⚡ 3. EXECUTING PANDAS DATA TRANSFORMATIONS ───
-    # Initialize our modified container frame
-    df_cleaned = df_raw.copy()
+        # ─── ⚡ 3. EXECUTING PANDAS DATA TRANSFORMATIONS ───
+        # Initialize df_cleaned from state if it exists, otherwise fall back to raw data
+        if "df_cleaned_data" not in st.session_state:
+            st.session_state.df_cleaned_data = df_raw.copy()
 
-    if submit_all_edits:
-        # A. Handle Row Pruning Operations
-        if rows_to_drop and TARGET_COL in df_cleaned.columns:
-            df_cleaned = df_cleaned[~df_cleaned[TARGET_COL].isin(rows_to_drop)]
+        # The form submission updates our state data frame permanently
+        if submit_all_edits:
+            df_working = df_raw.copy()
+            # A. Handle Row Pruning Operations
+            if rows_to_drop and TARGET_COL in df_working.columns:
+                df_working = df_working[~df_working[TARGET_COL].isin(rows_to_drop)]
 
-        # B. Handle Column Drop Operations (axis=1 targets vertical attributes)
-        if columns_to_drop:
-            df_cleaned = df_cleaned.drop(columns=columns_to_drop, errors='ignore')
+            # B. Handle Column Drop Operations
+            if columns_to_drop:
+                df_working = df_working.drop(columns=columns_to_drop, errors='ignore')
+
+            # Lock changes into session state memory
+            st.session_state.df_cleaned_data = df_working
+
+        # Point our active display variable to the state memory bank
+        df_cleaned = st.session_state.df_cleaned_data
 
     # ─── 📊 DISPLAY DYNAMIC METRICS SUMMARY ───
     st.markdown("### 📈 Pipeline Alteration Metrics Summary")
@@ -225,3 +234,76 @@ if st.session_state.df_raw_data is not None:
         st.dataframe(df_cleaned, use_container_width=True)
     else:
         st.warning("⚠️ Warning: Your active filter configuration completely emptied out the dataset matrix.")
+
+    # ----------------------------------------------------
+    # 📊 NEW SECTION: DYNAMIC DATA SUMMARY ENGINE
+    # ----------------------------------------------------
+    st.markdown("---")
+    st.subheader("📊 Target Metrics Summary Engine")
+    st.caption("Select columns dynamically to pinpoint assets and calculate real-time transaction aggregates.")
+
+    if not df_cleaned.empty:
+        # 1. Isolate schema columns based on their active data types
+        all_current_cols = df_cleaned.columns.tolist()
+        numeric_cols = df_cleaned.select_dtypes(include=['float64', 'int64']).columns.tolist()
+
+        # 2. Render Selection Dropdowns Side-by-Side
+        col_sum1, col_sum2, col_sum3 = st.columns(3)
+
+        with col_sum1:
+            # Let the user pick which column groups data (e.g., 'Ticker' or 'Name')
+            group_by_col = st.selectbox(
+                "Isolate Asset By Column:",
+                options=all_current_cols,
+                index=all_current_cols.index('Ticker') if 'Ticker' in all_current_cols else 0
+            )
+
+        with col_sum2:
+            # Extract unique records found within that chosen identity column
+            unique_entities = df_cleaned[
+                group_by_col].dropna().unique().tolist() if group_by_col in df_cleaned.columns else []
+            selected_entity = st.selectbox("Select Target Value to Sum:", options=unique_entities)
+
+        with col_sum3:
+            # Display math-safe column attributes exclusively
+            target_math_col = st.selectbox(
+                "Target Numeric Column to Total Up:",
+                options=numeric_cols,
+                index=numeric_cols.index('Total') if 'Total' in numeric_cols else 0
+            )
+
+        # 3. Execution Layer: Conditional Slicing & Calculation Matrix
+        if selected_entity and target_math_col:
+            # Use a boolean mask vector to isolate rows matching the selected asset
+            entity_mask = df_cleaned[group_by_col] == selected_entity
+            df_isolated_slice = df_cleaned[entity_mask]
+
+            # Compute the analytics totals on the isolated data slice
+            calculated_sum = df_isolated_slice[target_math_col].sum()
+            occurrence_count = len(df_isolated_slice)
+
+            # 4. Present the Summary to the User
+            st.markdown(f"### 📈 Aggregation Summary: `{selected_entity}`")
+
+            stat_col1, stat_col2 = st.columns(2)
+            with stat_col1:
+                st.metric(
+                    label=f"Cumulative Sum of {target_math_col}",
+                    value=f"£{calculated_sum:,.2f}" if calculated_sum >= 0 else f"-${abs(calculated_sum):,.2f}"
+                )
+            with stat_col2:
+                st.metric(
+                    label="Transaction Occurrence Count",
+                    value=f"{occurrence_count} times present"
+                )
+
+            # Contextual Bonus Breakdown: If 'Action' is still available, show buy vs sell frequency
+            if 'Action' in df_isolated_slice.columns:
+                with st.expander("📋 View Action Behavior Frequencies"):
+                    st.dataframe(df_isolated_slice['Action'].value_counts(), use_container_width=True)
+
+            # Render the underlying rows matching this asset for validation
+            with st.expander(f"🔍 Inspect Rows for {selected_entity}"):
+                st.dataframe(df_isolated_slice, use_container_width=True)
+    else:
+        st.info("Please ensure your dataset is populated and not fully pruned to calculate summaries.")
