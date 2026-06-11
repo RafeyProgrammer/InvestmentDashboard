@@ -278,8 +278,24 @@ if st.session_state.df_raw_data is not None:
             entity_mask = df_cleaned[group_by_col] == selected_entity
             df_isolated_slice = df_cleaned[entity_mask]
 
+            # New net sum logic (net of Buy orders - sell orders)
+            if "Action" in df_isolated_slice.columns:
+                # Isolate and sum all BUY transactions
+                buy_mask = df_isolated_slice["Action"] == "Market buy"
+                total_buys = df_isolated_slice[buy_mask][target_math_col].sum()
+
+                # Isolate and sum all SELL orders
+                sell_mask = df_isolated_slice["Action"] == "Market sell"
+                total_sells = df_isolated_slice[sell_mask][target_math_col].sum()
+
+                # Calculate true net sum
+                calculated_sum = total_buys - total_sells
+            else:
+                # Fallback incase there isn't "Action" column
+                calculated_sum = df_isolated_slice[target_math_col].sum()
+
             # Compute the analytics totals on the isolated data slice
-            calculated_sum = df_isolated_slice[target_math_col].sum()
+            #calculated_sum = df_isolated_slice[target_math_col].sum()
             occurrence_count = len(df_isolated_slice)
 
             # 4. Present the Summary to the User
