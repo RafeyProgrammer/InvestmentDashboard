@@ -1,3 +1,5 @@
+import time
+
 import streamlit as st
 import requests
 import pandas as pd
@@ -228,6 +230,28 @@ if API_KEY:
                     total_personal = df_personal['Current Value'].sum()
                     st.subheader(f"Personal Value: £{total_personal:,.2f}")
 
+                     # Rebalancer reset logic
+                    ctrl_col1, ctrl_col2 = st.columns([1, 3])
+
+                    with ctrl_col1:
+                        if st.button("🔄 Reset Targets", type="secondary", use_container_width=True):
+                            # Loop through the personal portfolio dataframe to target explicit widget keys
+                            for _, row in df_personal.iterrows():
+                                ticker_name = row['Ticker']
+                                main_key = f"main_{ticker_name}"
+
+                                # Calculate what the exact original baseline percentage value is
+                                baseline_pct = float((row['Current Value'] / total_personal) * 100)
+
+                                # Forcefully overwrite the widget state memory back to the baseline default
+                                st.session_state[main_key] = round(baseline_pct, 2)
+
+                            st.success("Targets reset to baseline!")
+                            time.sleep(0.3)
+                            # Force an immediate UI redraw with the re-assigned baseline states
+                            st.rerun()
+                    st.markdown("---")
+
                     # NEW: Fresh cash Input
                     fresh_personal_cash = st.number_input(
                         "Add new cash deposit (£)",
@@ -253,7 +277,7 @@ if API_KEY:
                                 min_value=0.0,
                                 max_value=100.0,
                                 value=round(current_pct, 2),  # Start at current allocation rounded cleanly
-                                step=0.1,  # The increment size for the arrows
+                                step=0.01,  # The increment size for the arrows
                                 format="%.2f",  # Forces 2-decimal floating point precision
                                 key=f"main_{ticker}"
                             )
@@ -459,6 +483,28 @@ if API_KEY:
                     total_pie = df_pie['Current Value'].sum()
                     st.subheader(f"Managed Pie Value: £{total_pie:,.2f}")
 
+                    # =========================================================================
+                    # 🔄 FIXED REBALANCER RESET LOGIC ENGINE
+                    # =========================================================================
+                    ctrl_col1, ctrl_col2 = st.columns([1, 3])
+
+                    with ctrl_col1:
+                        if st.button("🔄 Reset Targets", type="secondary", use_container_width=True,key="pie_reset"):
+                            # Do the exact same thing for the Pie allocation widgets if they exist
+                            if not df_pie.empty:
+                                for _, row in df_pie.iterrows():
+                                    ticker_name = row['Ticker']
+                                    pie_key = f"pie_{ticker_name}"
+                                    baseline_pie_pct = float((row['Current Value'] / total_pie) * 100)
+                                    st.session_state[pie_key] = round(baseline_pie_pct, 2)
+
+                            st.success("Targets reset to baseline!")
+                            time.sleep(0.3)
+                            # Force an immediate UI redraw with the re-assigned baseline states
+                            st.rerun()
+                    st.markdown("---")
+                    # =========================================================================
+
                     st.markdown("### 🎯 Rebalance Managed Pie")
                     col1_pie, col2_pie = st.columns([1, 2])
 
@@ -468,11 +514,20 @@ if API_KEY:
                         pie_total_target_pct = 0
 
                         for ticker in df_pie['Ticker']:
-                            current_pct = (df_pie.loc[df_pie['Ticker'] == ticker, 'Current Value'].values[
+                            current_pct = float(df_pie.loc[df_pie['Ticker'] == ticker, 'Current Value'].values[
                                                0] / total_pie) * 100
-                            pie_targets[ticker] = st.slider(f"{ticker} Target %", 0, 100, int(current_pct), 1,
-                                                            key=f"pie_{ticker}")
+
+                            pie_targets[ticker] = st.number_input(
+                                f"{ticker} Target %",
+                                min_value=0.0,
+                                max_value=100.0,
+                                value=round(current_pct, 2),  # Start at current allocation rounded cleanly
+                                step=0.01,  # The increment size for the arrows
+                                format="%.2f",  # Forces 2-decimal floating point precision
+                                key=f"pie_{ticker}"
+                            )
                             pie_total_target_pct += pie_targets[ticker]
+                            pie_total_target_pct = round(pie_total_target_pct,2)
 
                         if pie_total_target_pct != 100:
                             st.warning(f"Total Target: {pie_total_target_pct}% (Should equal 100%)")
