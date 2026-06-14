@@ -209,6 +209,8 @@ if API_KEY:
                 'Unrealized Profit': 'sum',
                 'Total Invested': 'sum'
             })
+            # Save snapshot to global memory for use in other pages
+            st.session_state.df_personal = df_personal
 
         df_pie = pd.DataFrame(pie_data)
         if not df_pie.empty:
