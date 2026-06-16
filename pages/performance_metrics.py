@@ -1,125 +1,182 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+from datetime import datetime
 
-st.set_page_config(page_title="Performance Metrics",layout="wide")
-st.title("Wall Street price targets")
-st.caption("See what the 'street' thinks of your stocks! compare your own forecasts to that of the experts"
-           "have you got a wall street favourite or a black sheep? ")
+st.set_page_config(page_title="Performance & News", layout="wide")
+st.title("🎯 Portfolio Performance & Intelligence Hub")
+st.caption("Cross-references your live holdings against institutional price targets and real-time news.")
 
 # ─── 🔄 DATA STATE CHECK ───
-# Pull the shared workspace directly from your rebalancer.py memory state
+# Ensure df_personal is populated from rebalancer.py
 if "df_personal" in st.session_state and not st.session_state.df_personal.empty:
     df_source = st.session_state.df_personal.copy()
 
-    # Prune out pure cash representations before hitting Yahoo Finance
+    # Prune out pure cash rows before hitting Yahoo Finance
     df_stocks = df_source[~df_source['Ticker'].str.contains("CASH|CASH", case=False, na=True)]
 
     if not df_stocks.empty:
-        forecast_data = []
 
-        # Display a sleek global scanner banner while background processing runs
-        with st.spinner("Analyzing current price vs analyst target matrices..."):
-            for _, row in df_stocks.iterrows():
-                clean_name = row['Ticker']
-                raw_ticker = row['Raw Ticker']
+        # ─── 🗂️ CREATING MULTI-TAB INTERFACE ───
+        tab1, tab2 = st.tabs(["📊 Analyst Price Targets", "📰 Real-Time Portfolio News"])
 
-                # ─── 🛠️ UPGRADED BULLETPROOF TICKER TRANSLATOR ───
-                YAHOO_OVERRIDES = {
-                    'IPOE_US_EQ': 'SOFI',
-                    'FB_US_EQ': 'META',
-                    'GOOG_US_EQ': 'GOOG',
-                    'GOOGL_US_EQ': 'GOOGL'
-                }
+        # =========================================================================
+        # TAB 1: ANALYST PRICE TARGET MATRIX
+        # =========================================================================
+        with tab1:
+            forecast_data = []
+            unique_yf_tickers = {}  # Store mapped tickers to reuse for the news feed
 
-                if raw_ticker in YAHOO_OVERRIDES:
-                    yf_ticker = YAHOO_OVERRIDES[raw_ticker]
-                else:
-                    # Strip away common Trading 212 transaction suffixes
-                    base_ticker = raw_ticker.split('_')[0].strip()
+            with st.spinner("Analyzing current price vs analyst target matrices..."):
+                for _, row in df_stocks.iterrows():
+                    clean_name = row['Ticker']
+                    raw_ticker = row['Raw Ticker']
 
-                    # Force a clean uppercase comparison to match LSE tickers accurately
-                    base_upper = base_ticker.upper()
-
-                    # Explicit UK/LSE handling
-                    if "US" in raw_ticker:
-                        # It's explicitly a US stock
-                        yf_ticker = base_ticker
-                    elif base_upper in ['RRL', 'RR']:
-                        # Handle Rolls-Royce specific anomalies
-                        yf_ticker = 'RR.L'
-                    elif "GB" in raw_ticker or "UK" in raw_ticker or "." not in base_ticker:
-                        # Fallback: If it's not a US stock, or if it lacks a dot, append the LSE marker (.L)
-                        # This catches standard UK tickers like LGEN, VOD, BARC, etc.
-                        yf_ticker = f"{base_ticker}.L"
+                    # ─── TRANSLATE TICKER FOR YAHOO FINANCE ───
+                    YAHOO_OVERRIDES = {'IPOE_US_EQ': 'SOFI', 'FB_US_EQ': 'META', 'GOOG_US_EQ': 'GOOG',
+                                       'GOOGL_US_EQ': 'GOOGL'}
+                    if raw_ticker in YAHOO_OVERRIDES:
+                        yf_ticker = YAHOO_OVERRIDES[raw_ticker]
                     else:
-                        yf_ticker = base_ticker
+                        base_ticker = raw_ticker.split('_')[0].strip()
+                        base_upper = base_ticker.upper()
 
-                try:
-                    # Fetch live analyst targets out of Yahoo's info dictionary
-                    ticker_obj = yf.Ticker(yf_ticker)
-                    info = ticker_obj.info
+                        if "US" in raw_ticker:
+                            yf_ticker = base_ticker
+                        elif base_upper in ['RRL', 'RR']:
+                            yf_ticker = 'RR.L'
+                        elif "GB" in raw_ticker or "UK" in raw_ticker or "." not in base_ticker:
+                            yf_ticker = f"{base_ticker}.L"
+                        else:
+                            yf_ticker = base_ticker
 
-                    current_price = info.get("currentPrice", info.get("regularMarketPrice", 0.0))
-                    low_target = info.get("targetLowPrice")
-                    med_target = info.get("targetMedianPrice")
-                    high_target = info.get("targetHighPrice")
+                    # Save the mapped ticker for Tab 2
+                    unique_yf_tickers[clean_name] = yf_ticker
 
-                    # ─── MATH MATRIX COMPILATION ENGINE ───
-                    # Distance formula: ((Target - Current) / Current) * 100
-                    dist_low = ((
-                                            low_target - current_price) / current_price * 100) if low_target and current_price else None
-                    dist_med = ((
-                                            med_target - current_price) / current_price * 100) if med_target and current_price else None
-                    dist_high = ((
-                                             high_target - current_price) / current_price * 100) if high_target and current_price else None
+                    try:
+                        ticker_obj = yf.Ticker(yf_ticker)
+                        info = ticker_obj.info
 
-                    forecast_data.append({
-                        "Asset": clean_name,
-                        "Current Price": current_price,
-                        "Low Target": low_target,
-                        "Median Target": med_target,
-                        "High Target": high_target,
-                        "To Low Target": dist_low,
-                        "To Median Target": dist_med,
-                        "To High Target": dist_high
-                    })
+                        current_price = info.get("currentPrice", info.get("regularMarketPrice", 0.0))
+                        low_target = info.get("targetLowPrice")
+                        med_target = info.get("targetMedianPrice")
+                        high_target = info.get("targetHighPrice")
 
-                except Exception:
-                    # Graceful fallback handler if yfinance rate-limits a specific asset line
-                    forecast_data.append({
-                        "Asset": clean_name, "Current Price": 0.0,
-                        "Low Target": None, "Median Target": None, "High Target": None,
-                        "To Low Target": None, "To Median Target": None, "To High Target": None
-                    })
+                        # Distance formula calculation
+                        dist_low = ((
+                                                low_target - current_price) / current_price * 100) if low_target and current_price else None
+                        dist_med = ((
+                                                med_target - current_price) / current_price * 100) if med_target and current_price else None
+                        dist_high = ((
+                                                 high_target - current_price) / current_price * 100) if high_target and current_price else None
 
-        # ─── 📊 THE PRESENTATION LAYER ───
-        df_forecast = pd.DataFrame(forecast_data)
+                        forecast_data.append({
+                            "Asset": clean_name,
+                            "Current Price": current_price,
+                            "Low Target": low_target,
+                            "Median Target": med_target,
+                            "High Target": high_target,
+                            "To Low Target": dist_low,
+                            "To Median Target": dist_med,
+                            "To High Target": dist_high
+                        })
 
-        # Style layout mapping instructions for Streamlit's st.dataframe engine
-        st.markdown("### 📋 Analyst Growth Runway Matrix")
+                    except Exception:
+                        forecast_data.append({
+                            "Asset": clean_name, "Current Price": 0.0,
+                            "Low Target": None, "Median Target": None, "High Target": None,
+                            "To Low Target": None, "To Median Target": None, "To High Target": None
+                        })
 
-        st.dataframe(
-            df_forecast.style.format({
-                "Current Price": "£{:.2f}",
-                "Low Target": "£{:.2f}",
-                "Median Target": "£{:.2f}",
-                "High Target": "£{:.2f}",
-                "To Low Target": "{:+.1f}%",
-                "To Median Target": "{:+.1f}%",
-                "To High Target": "{:+.1f}%"
-            }).map(
-                lambda x: "color: #ff4c4c;" if isinstance(x, (int, float)) and x < 0 else (
-                    "color: #4caf50;" if isinstance(x, (int, float)) and x > 0 else ""),
-                subset=["To Low Target", "To Median Target", "To High Target"]
-            ),
-            use_container_width=True,
-            hide_index=True
-        )
+            df_forecast = pd.DataFrame(forecast_data)
+            st.markdown("### 📋 Analyst Growth Runway Matrix")
 
-        # Informational operational notice
-        st.info(
-            "💡 **How to interpret table values:** A positive green percentage indicates how much the asset needs to rally to reach that analyst target. A negative red percentage means the stock is currently trading above that specific forecast projection.")
+            st.dataframe(
+                df_forecast.style.format({
+                    "Current Price": "£{:.2f}",
+                    "Low Target": "£{:.2f}",
+                    "Median Target": "£{:.2f}",
+                    "High Target": "£{:.2f}",
+                    "To Low Target": "{:+.1f}%",
+                    "To Median Target": "{:+.1f}%",
+                    "To High Target": "{:+.1f}%"
+                }).map(
+                    lambda x: "color: #ff4c4c;" if isinstance(x, (int, float)) and x < 0 else (
+                        "color: #4caf50;" if isinstance(x, (int, float)) and x > 0 else ""),
+                    subset=["To Low Target", "To Median Target", "To High Target"]
+                ),
+                use_container_width=True,
+                hide_index=True
+            )
+            st.info(
+                "💡 **Interpretation:** A positive green percentage indicates remaining upside potential to hit that target. Negative red means it has outgrown that forecast limit.")
+
+        # =========================================================================
+        # TAB 2: LIVE PORTFOLIO NEWS FEED
+        # =========================================================================
+        with tab2:
+            st.markdown("### 📰 Breaking Institutional Headlines")
+            st.caption("Latest chronological news stream matching your exact portfolio assets.")
+
+            all_news_articles = []
+
+            with st.spinner("Fetching synchronized news wires..."):
+                # Loop through the tickers we mapped during the Tab 1 cycle
+                for clean_name, yf_ticker in unique_yf_tickers.items():
+                    try:
+                        stock_obj = yf.Ticker(yf_ticker)
+                        ticker_news = stock_obj.news
+
+                        if ticker_news:
+                            for article in ticker_news:
+                                # Parse out Yahoo's new nested 'content' layer
+                                content = article.get("content", {})
+                                if not content:
+                                    continue
+
+                                title = content.get("title", "No Title Available")
+                                provider = content.get("provider", {})
+                                publisher = provider.get("displayName", "Unknown Source")
+
+                                # Convert the ISO date string to a readable layout
+                                raw_date_str = content.get("pubDate", "")
+                                try:
+                                    clean_time = datetime.strptime(raw_date_str, "%Y-%m-%dT%H:%M:%SZ").strftime(
+                                        '%Y-%m-%d %H:%M')
+                                except:
+                                    clean_time = "Recent"
+
+                                click_url_dict = content.get("clickThroughUrl", {})
+                                link = click_url_dict.get("url", "#") if click_url_dict else "#"
+
+                                all_news_articles.append({
+                                    "Asset": clean_name,
+                                    "Headline": title,
+                                    "Publisher": publisher,
+                                    "Time": clean_time,
+                                    "Link": link
+                                })
+                    except Exception as e:
+                        pass  # Silently proceed if an individual network link times out
+
+            # Display the processed news array
+            if all_news_articles:
+                # Sort everything so the newest headlines from all stocks hit the top of the timeline
+                sorted_news = sorted(all_news_articles, key=lambda x: x["Time"], reverse=True)
+
+                # Render clean UI cards for each story
+                for item in sorted_news[:32]:  # Display the top 15 breaking stories
+                    with st.container(border=True):
+                        col_news1, col_news2 = st.columns([1, 5])
+                        with col_news1:
+                            st.markdown(f"### ` {item['Asset']} `")
+                            st.caption(f"⏱️ {item['Time']}")
+                        with col_news2:
+                            st.markdown(f"**{item['Publisher']}**")
+                            # HTML anchor rendering to make the headline link out smoothly
+                            st.markdown(f"#### [{item['Headline']}]({item['Link']})")
+            else:
+                st.info("📭 No recent news wire data found for your current portfolio holdings.")
 
     else:
         st.warning("⚠️ No active stock allocations found in your portfolio to trace forecast markers against.")
