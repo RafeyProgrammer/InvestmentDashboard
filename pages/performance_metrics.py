@@ -111,65 +111,77 @@ if "df_personal" in st.session_state and not st.session_state.df_personal.empty:
             st.info(
                 "💡 **Interpretation:** A positive green percentage indicates remaining upside potential to hit that target. Negative red means it has outgrown that forecast limit.")
 
-        # =========================================================================
-        # TAB 2: LIVE PORTFOLIO NEWS FEED
-        # =========================================================================
-        with tab2:
-            st.markdown("### 📰 Breaking Institutional Headlines")
-            st.caption("Latest chronological news stream matching your exact portfolio assets.")
+            # =========================================================================
+            # TAB 2: LIVE PORTFOLIO NEWS FEED (GUARANTEED FAIR DELIVERY)
+            # =========================================================================
+            with tab2:
+                st.markdown("### 📰 Breaking Institutional Headlines")
+                st.caption("Synchronized news wires separated by asset to ensure complete portfolio coverage.")
 
-            all_news_articles = []
+                with st.spinner("Fetching synchronized news wires..."):
+                    # Loop through the mapped tickers one by one
+                    for clean_name, yf_ticker in unique_yf_tickers.items():
 
-            with st.spinner("Fetching synchronized news wires..."):
-                # Loop through the tickers we mapped during the Tab 1 cycle
-                for clean_name, yf_ticker in unique_yf_tickers.items():
-                    try:
-                        stock_obj = yf.Ticker(yf_ticker)
-                        ticker_news = stock_obj.news
+                        # Create an expandable drop-down section for each stock
+                        with st.expander(f"📁 Latest News for {clean_name}", expanded=True):
+                            try:
+                                stock_obj = yf.Ticker(yf_ticker)
+                                ticker_news = stock_obj.news
 
-                        if ticker_news:
-                            for article in ticker_news:
-                                # Parse out Yahoo's new nested 'content' layer
-                                content = article.get("content", {})
-                                if not content:
-                                    continue
+                                ticker_articles = []
 
-                                title = content.get("title", "No Title Available")
-                                provider = content.get("provider", {})
-                                publisher = provider.get("displayName", "Unknown Source")
+                                if ticker_news:
+                                    for article in ticker_news:
+                                        content = article.get("content", {})
+                                        if not content:
+                                            continue
 
-                                # Convert the ISO date string to a readable layout
-                                raw_date_str = content.get("pubDate", "")
-                                try:
-                                    clean_time = datetime.strptime(raw_date_str, "%Y-%m-%dT%H:%M:%SZ").strftime(
-                                        '%Y-%m-%d %H:%M')
-                                except:
-                                    clean_time = "Recent"
+                                        title = content.get("title", "No Title Available")
+                                        provider = content.get("provider", {})
+                                        publisher = provider.get("displayName", "Unknown Source")
 
-                                click_url_dict = content.get("clickThroughUrl", {})
-                                link = click_url_dict.get("url", "#") if click_url_dict else "#"
+                                        raw_date_str = content.get("pubDate", "")
+                                        try:
+                                            clean_time = datetime.strptime(raw_date_str, "%Y-%m-%dT%H:%M:%SZ").strftime(
+                                                '%Y-%m-%d %H:%M')
+                                        except:
+                                            clean_time = "Recent"
 
-                                all_news_articles.append({
-                                    "Asset": clean_name,
-                                    "Headline": title,
-                                    "Publisher": publisher,
-                                    "Time": clean_time,
-                                    "Link": link
-                                })
-                    except Exception as e:
-                        pass  # Silently proceed if an individual network link times out
+                                        click_url_dict = content.get("clickThroughUrl", {})
+                                        link = click_url_dict.get("url", "#") if click_url_dict else "#"
+
+                                        ticker_articles.append({
+                                            "Headline": title,
+                                            "Publisher": publisher,
+                                            "Time": clean_time,
+                                            "Link": link
+                                        })
+
+                                    # Sort this specific stock's news newest to oldest
+                                    ticker_articles = sorted(ticker_articles, key=lambda x: x["Time"], reverse=True)
+
+                                    # Render the articles strictly for this stock
+                                    for item in ticker_articles[:5]:  # Show up to 5 articles per stock
+                                        st.markdown(f"⏱️ **{item['Time']}** | *{item['Publisher']}*")
+                                        st.markdown(f"🔗 [{item['Headline']}]({item['Link']})")
+                                        st.markdown("---")
+                                else:
+                                    st.caption("📭 No recent media coverage indexed for this asset.")
+
+                            except Exception as e:
+                                st.caption("⚠️ Localized network latency timeout on this asset stream.")
 
             # Display the processed news array
-            if all_news_articles:
+            if ticker_articles:
                 # Sort everything so the newest headlines from all stocks hit the top of the timeline
-                sorted_news = sorted(all_news_articles, key=lambda x: x["Time"], reverse=True)
+                sorted_news = sorted(ticker_articles, key=lambda x: x["Time"], reverse=True)
 
                 # Render clean UI cards for each story
                 for item in sorted_news[:32]:  # Display the top 15 breaking stories
                     with st.container(border=True):
                         col_news1, col_news2 = st.columns([1, 5])
                         with col_news1:
-                            st.markdown(f"### ` {item['Asset']} `")
+                            #st.markdown(f"### ` {item['Asset']} `")
                             st.caption(f"⏱️ {item['Time']}")
                         with col_news2:
                             st.markdown(f"**{item['Publisher']}**")
