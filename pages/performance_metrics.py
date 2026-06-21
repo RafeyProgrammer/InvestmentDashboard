@@ -79,16 +79,27 @@ if "df_personal" in st.session_state and not st.session_state.df_personal.empty:
 
             df_forecast = pd.DataFrame(forecast_data)
             st.markdown("### 📋 Analyst Growth Runway Matrix")
+            # ─── 🛡️ BULLETPROOF MOBILE FORMATTING FUNCTIONS ───
+            # These safely ignore None/Null values so your mobile app never crashes
+            safe_currency = lambda x: f"£{x:.2f}" if pd.notna(x) and isinstance(x, (int, float)) else "N/A"
+            safe_percent = lambda x: f"{x:+.1f}%" if pd.notna(x) and isinstance(x, (int, float)) else "N/A"
+
             st.dataframe(
                 df_forecast.style.format({
-                    "Current Price": "£{:.2f}", "Low Target": "£{:.2f}", "Median Target": "£{:.2f}",
-                    "High Target": "£{:.2f}",
-                    "To Low Target": "{:+.1f}%", "To Median Target": "{:+.1f}%", "To High Target": "{:+.1f}%"
+                    "Current Price": safe_currency,
+                    "Low Target": safe_currency,
+                    "Median Target": safe_currency,
+                    "High Target": safe_currency,
+                    "To Low Target": safe_percent,
+                    "To Median Target": safe_percent,
+                    "To High Target": safe_percent
                 }).map(
                     lambda x: "color: #ff4c4c;" if isinstance(x, (int, float)) and x < 0 else (
                         "color: #4caf50;" if isinstance(x, (int, float)) and x > 0 else ""),
                     subset=["To Low Target", "To Median Target", "To High Target"]
-                ), use_container_width=True, hide_index=True
+                ),
+                use_container_width=True,
+                hide_index=True
             )
 
         # =========================================================================
