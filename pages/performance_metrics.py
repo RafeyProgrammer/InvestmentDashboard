@@ -2,6 +2,17 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime
+import requests
+from streamlit.runtime.state import session_state
+
+# 👑 CREATE A PERSISTENT AGENT SESSION AT THE TOP OF YOUR FILE
+if "session" not in st.session_state:
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    })
+    st.session_state.session = session
 
 st.set_page_config(page_title="Performance & Valuation", layout="wide")
 st.title("🎯 Portfolio Performance & Valuation Hub")
@@ -51,7 +62,7 @@ if "df_personal" in st.session_state and not st.session_state.df_personal.empty:
                     unique_yf_tickers[clean_name] = yf_ticker
 
                     try:
-                        ticker_obj = yf.Ticker(yf_ticker)
+                        ticker_obj = yf.Ticker(yf_ticker,session=st.session_state.session)
                         info = ticker_obj.info
                         current_price = info.get("currentPrice", info.get("regularMarketPrice", 0.0))
                         low_target = info.get("targetLowPrice")
